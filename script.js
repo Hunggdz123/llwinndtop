@@ -1,4 +1,122 @@
 lucide.createIcons();
+var flagGlobes = [];
+document.querySelectorAll(".globe-orb").forEach(function (globe) {
+  var sourceSvg = globe.querySelector(".globe-continents");
+  if (!sourceSvg) return;
+
+  var canvas = document.createElement("canvas");
+  canvas.className = "globe-surface";
+  canvas.setAttribute("aria-hidden", "true");
+  globe.replaceChild(canvas, sourceSvg);
+
+  var texture = document.createElement("canvas");
+  texture.width = 512;
+  texture.height = 256;
+  var textureContext = texture.getContext("2d", { willReadFrequently: true });
+  var image = new Image();
+  var svgMarkup = new XMLSerializer().serializeToString(sourceSvg);
+  image.onload = function () {
+    textureContext.drawImage(image, -128, 0, 256, 256);
+    textureContext.drawImage(image, 128, 0, 256, 256);
+    textureContext.drawImage(image, 384, 0, 256, 256);
+    var pixels = textureContext.getImageData(
+      0,
+      0,
+      texture.width,
+      texture.height,
+    ).data;
+    flagGlobes.push({
+      canvas: canvas,
+      pixels: pixels,
+      width: texture.width,
+      height: texture.height,
+      angle: Number(globe.dataset.globeAngle) || 0,
+      lastFrame: 0,
+    });
+    if (!globeAnimationStarted) {
+      globeAnimationStarted = true;
+      requestAnimationFrame(renderFlagGlobes);
+    }
+  };
+  image.src =
+    "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svgMarkup);
+});
+var globeAnimationStarted = false;
+function renderFlagGlobes(timestamp) {
+  flagGlobes.forEach(function (globe) {
+    var rect = globe.canvas.getBoundingClientRect();
+    if (!rect.width || !rect.height) return;
+
+    var pixelRatio = Math.min(Math.max(window.devicePixelRatio || 1, 2), 3);
+    var width = Math.round(rect.width * pixelRatio);
+    var height = Math.round(rect.height * pixelRatio);
+    if (globe.canvas.width !== width || globe.canvas.height !== height) {
+      globe.canvas.width = width;
+      globe.canvas.height = height;
+      globe.lastFrame = 0;
+    }
+
+    if (globe.lastFrame && timestamp - globe.lastFrame < 32) return;
+    if (globe.lastFrame) {
+      globe.angle =
+        (globe.angle + ((timestamp - globe.lastFrame) / 5500) * Math.PI * 2) %
+        (Math.PI * 2);
+    }
+    globe.lastFrame = timestamp;
+
+    var context = globe.canvas.getContext("2d");
+    var frame = context.createImageData(width, height);
+    var output = frame.data;
+    var radius = Math.min(width, height) * 0.49;
+    var centerX = width / 2;
+    var centerY = height / 2;
+    var lightX = -0.42;
+    var lightY = -0.5;
+    var lightZ = 0.76;
+
+    for (var y = 0; y < height; y++) {
+      var ny = (centerY - y - 0.5) / radius;
+      for (var x = 0; x < width; x++) {
+        var nx = (x + 0.5 - centerX) / radius;
+        var depthSquared = 1 - nx * nx - ny * ny;
+        if (depthSquared <= 0) continue;
+
+        var nz = Math.sqrt(depthSquared);
+        var longitude = Math.atan2(nx, nz) + globe.angle;
+        var latitude = Math.asin(ny);
+        var u = ((longitude / (Math.PI * 2) + 0.5) % 1 + 1) % 1;
+        var v = Math.max(0, Math.min(0.99999, 0.5 - latitude / Math.PI));
+        var textureX = Math.floor(u * globe.width);
+        var textureY = Math.floor(v * globe.height);
+        var sourceIndex = (textureY * globe.width + textureX) * 4;
+        var outputIndex = (y * width + x) * 4;
+        var light = Math.max(
+          0,
+          nx * lightX + ny * lightY + nz * lightZ,
+        );
+        var diffuse = 0.54 + light * 0.46;
+        var highlight = Math.pow(light, 28) * 0.14;
+        var rim = Math.pow(1 - nz, 3) * 0.1;
+
+        output[outputIndex] =
+          globe.pixels[sourceIndex] * diffuse +
+          (255 - globe.pixels[sourceIndex]) * highlight +
+          35 * rim;
+        output[outputIndex + 1] =
+          globe.pixels[sourceIndex + 1] * diffuse +
+          (255 - globe.pixels[sourceIndex + 1]) * highlight +
+          165 * rim;
+        output[outputIndex + 2] =
+          globe.pixels[sourceIndex + 2] * diffuse +
+          (255 - globe.pixels[sourceIndex + 2]) * highlight +
+          235 * rim;
+        output[outputIndex + 3] = 255;
+      }
+    }
+    context.putImageData(frame, 0, 0);
+  });
+  requestAnimationFrame(renderFlagGlobes);
+}
 function escapeHtml(str) {
   if (!str) return "";
   return String(str)
